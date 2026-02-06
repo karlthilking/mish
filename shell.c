@@ -91,16 +91,14 @@ bg_list_check(bg_list_t *bg_list)
     for (int i = 0; i < MAX_BG_TASKS; ++i) {
         if ((bg_pid = waitpid(bg_list->bg_tasks[i], &wstatus, WNOHANG)) > 0 &&
             ((id = bg_list_remove(bg_list, bg_pid))) != -1) {
-            if (!removed)
+            if (!removed++)
                 putchar('\n');
-            if (WIFEXITED(wstatus) && ((rc = WEXITSTATUS(wstatus))) != 0) {
+            if (WIFEXITED(wstatus) && (rc = WEXITSTATUS(wstatus)) != 0) {
                 if (rc == ENOENT || rc == EBADF || rc == EACCES)
                     continue;
                 printf("[%d] %d exit %d\n", id, bg_pid, rc);
-                ++removed;
             } else {
                 printf("[%d] %d done\n", id, bg_pid);
-                ++removed;
             }
         }
     }
