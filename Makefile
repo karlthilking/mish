@@ -1,16 +1,26 @@
 CC = gcc
 CFLAGS = -g3 -O0
 
-build: shell
+define build_debug
+	$(eval CFLAGS := -g3 -O0)
+	$(CC) $(CFLAGS) -o shell shell.c
+	echo "${CC} ${CFLAGS} -o shell shell.c"
+endef
 
-shell: shell.c
-	$(CC) $(CFLAGS) -o $@ $<
-
-release: shell.c
+define build_release
 	$(eval CFLAGS := -O3)
-	$(CC) $(CFLAGS) -o $@ $<
+	$(CC) $(CFLAGS) -o shell shell.c
+	echo "${CC} ${CFLAGS} -o shell shell.c"
+endef
 
-check: build
+debug: 
+	@$(call build_debug)
+
+release:
+	@$(call build_release)
+
+check:
+	@$(call build_release)
 	./shell
 
 clean:
