@@ -86,12 +86,14 @@ bg_list_check(bg_list_t *bg_list)
     pid_t bg_pid;
     int id, rc, wstatus;
     for (int i = 0; i < MAX_BG_TASKS; ++i) {
-        if ((bg_pid = waitpid(bg_list->bg_tasks[i], &wstatus, WNOHANG)) > 0) {
-            if ((id = bg_list_remove(bg_list, bg_pid)) != -1) {
-                if (WIFEXITED(wstatus) && ((rc = WEXITSTATUS(wstatus))) != 0)
-                    printf("[%d] %d exit %d\n", id, bg_pid, rc); 
-                else
-                    printf("[%d] %d done\n", id, bg_pid);
+        if (((bg_pid = waitpid(bg_list->bg_tasks[i], &wstatus, WNOHANG)) > 0) &&
+            ((id = bg_list_remove(bg_list, bg_pid))) != -1) {
+            if (WIFEXITED(wstatus) && ((rc = WEXITSTATUS(wstatus))) != 0) {
+                if (rc == ENOENT || rc == EBADF)
+                    continue;
+                printf("[%d] %d exit %d\n", id, bg_pid, rc);
+            } else {
+                printf("[%d] %d done\n", id, bg_pid);
             }
         }
     }
@@ -281,18 +283,18 @@ spawn_tasks(task_t tasks[], int ntasks)
                 if (tasks[pending].opt & OPT_PIPERD) {
                     if (pipe_status & PIPE_READ1) {
                         if (dup2(pipefd1[RD_PIPE], STDIN_FILENO) < 0)
-                            err(EXIT_FAILURE, "dup2");
+                            err(errno, "dup2");
                     } else if (dup2(pipefd2[RD_PIPE], STDIN_FILENO) < 0) {
-                        err(EXIT_FAILURE, "dup2");
+                        err(errno, "dup2");
                     }
                 }
                 if (tasks[pending].opt & OPT_PIPEWR) {
                     if (!(pipe_status ^ (PIPE_USED1 | PIPE_USED2)) || 
                         !(pipe_status & PIPE_USED2)) {
                         if (dup2(pipefd1[WR_PIPE], STDOUT_FILENO) < 0)
-                            err(EXIT_FAILURE, "dup2");
+                            err(errno, "dup2");
                     } else if (dup2(pipefd2[WR_PIPE], STDOUT_FILENO) < 0) {
-                        err(EXIT_FAILURE, "dup2");
+                        err(errno, "dup2");
                     }
                 }
                 // dup2 automatically closes newfd (second argument) so 
@@ -301,23 +303,23 @@ spawn_tasks(task_t tasks[], int ntasks)
                 if (tasks[pending].opt & OPT_RDRIN) {
                     if ((fds[IX_RDRIN] = open(tasks[pending].filename,
                                               O_RDONLY)) < 0) {
-                        err(EXIT_FAILURE, "open");
+                        err(errno, "open");
                     }
                     if (dup2(fds[IX_RDRIN], STDIN_FILENO) < 0)
-                        err(EXIT_FAILURE, "dup2");
+                        err(errno, "dup2");
                 }
                 if (tasks[pending].opt & OPT_RDROUT) {
                     if ((fds[IX_RDROUT] = open(tasks[pending].filename,
                                                O_WRONLY | O_CREAT | O_TRUNC, 
                                                S_IRWXU)) < 0) {
-                        err(EXIT_FAILURE, "open");
+                        err(errno, "open");
                     }
                     if (dup2(fds[IX_RDROUT], STDOUT_FILENO) < 0)
-                        err(EXIT_FAILURE, "dup2");
+                        err(errno, "dup2");
                 }
                 if (execvp(tasks[pending].argv[0], tasks[pending].argv) < 0) {
                     perror(tasks[pending].argv[0]);
-                    exit(EXIT_FAILURE);
+                    exit(errno);
                 }
             default:
                 if (tasks[pending].opt & OPT_BGTASK)
@@ -346,8 +348,15 @@ spawn_tasks(task_t tasks[], int ntasks)
             continue;
         if (waitpid(tasks[i].pid, &wstatus, 0) < 0)
             perror(tasks[i].argv[0]);
-        if (WIFEXITED(wstatus) && (WEXITSTATUS(wstatus) != 0))
+        if (WIFEXITED(wstatus) && (WEXITSTATUS(wstatus) != 0)) {
+            // child processes that fail before exec or from exec return the current errno
+            // so an exit status of ENOENT and EBADF indicate that the program was never
+            // executed; thus, don't report the exit status of a child process than never
+            // started execution
+            if (WEXITSTATUS(wstatus) == ENOENT || WEXITSTATUS(wstatus) == EBADF)
+                continue;
             printf("%s exit %d\n", tasks[i].argv[0], WEXITSTATUS(wstatus));
+        }
     }
     return;
 }
